@@ -182,6 +182,10 @@ td.gutter { position: relative; }
 }
 tr:hover .row-del { display: grid; }
 tr:hover .row-num { visibility: hidden; }
+tr .row-del.asking { display: grid; background: var(--c-rose-bg); color: var(--c-rose-fg); }
+tr:has(.row-del.asking) .row-num { visibility: hidden; }
+.menu.confirm { padding: 8px 12px; }
+.confirm-text { margin: 0; font-size: 12.5px; color: var(--c-rose-fg); font-weight: 500; }
 .row-del:hover { background: var(--c-rose-bg); color: var(--c-rose-fg); }
 .add-col-th { width: 52px; }
 .add-col {
@@ -710,7 +714,7 @@ import { createClient } from "@supabase/supabase-js";
       tr.append(el("td", { class: "gutter" },
         el("span", { class: "row-num", text: n ?? "" }),
         el("button", { class: "row-del", type: "button", "aria-label": n ? `${n}行目を削除` : "この完了した行を削除", text: "×",
-          onclick: () => { t.rows.splice(ri, 1); save(); renderSheet(); renderTabs(); } })));
+          onclick: e => confirmRowDelete(e.currentTarget, () => { t.rows.splice(ri, 1); save(); renderSheet(); renderTabs(); }) })));
       t.cols.forEach((c, ci) => tr.append(el("td", {}, cellEl(t, r, c, ri, ci))));
       tr.append(el("td"));
       return tr;
@@ -745,6 +749,18 @@ import { createClient } from "@supabase/supabase-js";
       const target = sheetEl.querySelector(`[data-r="${focus.r}"][data-c="${focus.c}"]`);
       target?.focus();
     }
+  }
+
+  // 1回目は「もう一度押すと削除します」と出し、2回目で削除する
+  function confirmRowDelete(anchor, action) {
+    if (anchor.classList.contains("asking")) { closeMenu(); action(); return; }
+    anchor.classList.add("asking");
+    openMenu(anchor, m => {
+      m.classList.add("compact", "confirm");
+      m.append(el("p", { class: "confirm-text", text: "もう一度押すと削除します" }));
+    });
+    const prev = menuCleanup;
+    menuCleanup = () => { prev?.(); anchor.classList.remove("asking"); };
   }
 
   function addRow(t, focusIt, at) {
