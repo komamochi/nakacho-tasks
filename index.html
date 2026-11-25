@@ -221,7 +221,9 @@ td:focus-within { box-shadow: inset 0 0 0 2px var(--wood); border-radius: 4px; }
 
 .done-group td, .add-group td { border-right: 0; background: var(--surface); }
 tbody.add-group tr:hover td { background: var(--surface); }
-.add-row { position: sticky; left: 0; margin: 4px 8px; }
+.scroller { container-type: inline-size; }
+.add-line { position: sticky; left: 0; width: 100cqw; display: flex; align-items: center; gap: 8px; padding: 4px 8px; }
+.add-line .hint { margin-left: auto; color: var(--ink-soft); font-size: 12px; padding-right: 8px; white-space: nowrap; }
 tbody.done-group tr:hover td { background: var(--surface); }
 .done-toggle {
   position: sticky; left: 0; border: 0; background: transparent; border-radius: 999px;
@@ -268,7 +270,7 @@ tbody.done-group tr:hover td { background: var(--surface); }
   .mascot { width: 120px; top: calc((var(--head-h) - 120px) / 2 - 16px); }
   .tabs { max-width: calc(100% - 124px); }
   .top h1 { font-size: 22px; }
-  .sheet .foot { display: none; }
+  .add-line .hint { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
@@ -684,8 +686,8 @@ import { createClient } from "@supabase/supabase-js";
     const makeRow = ({ r, ri }, n) => {
       const tr = el("tr", { class: isDone(r) ? "done" : "", "data-row": ri });
       tr.append(el("td", { class: "gutter" },
-        el("span", { class: "row-num", text: n }),
-        el("button", { class: "row-del", type: "button", "aria-label": `${n}行目を削除`, text: "×",
+        el("span", { class: "row-num", text: n ?? "" }),
+        el("button", { class: "row-del", type: "button", "aria-label": n ? `${n}行目を削除` : "この完了した行を削除", text: "×",
           onclick: () => { t.rows.splice(ri, 1); save(); renderSheet(); renderTabs(); } })));
       t.cols.forEach((c, ci) => tr.append(el("td", {}, cellEl(t, r, c, ri, ci))));
       tr.append(el("td"));
@@ -694,7 +696,9 @@ import { createClient } from "@supabase/supabase-js";
     const body = el("tbody");
     open.forEach((x, i) => body.append(makeRow(x, i + 1)));
     const bodies = [body, el("tbody", { class: "add-group" }, el("tr", {}, el("td", { colspan: t.cols.length + 2 },
-      el("button", { class: "btn-soft add-row", type: "button", onclick: () => addRow(t, true) }, el("span", { text: "+" }), "行を追加"))))];
+      el("div", { class: "add-line" },
+        el("button", { class: "btn-soft", type: "button", onclick: () => addRow(t, true) }, el("span", { text: "+" }), "行を追加"),
+        el("span", { class: "hint", text: "Enter で下の行へ ・ 列名を押すと種類や並べ替え" })))))];
     if (closed.length) {
       const shown = !!t.showDone;
       bodies.push(el("tbody", { class: "done-group" }, el("tr", {}, el("td", { colspan: t.cols.length + 2 },
@@ -705,16 +709,14 @@ import { createClient } from "@supabase/supabase-js";
           el("span", { class: "done-count", text: closed.length }))))));
       if (shown) {
         const doneBody = el("tbody", { class: "done-rows" });
-        closed.forEach((x, i) => doneBody.append(makeRow(x, open.length + i + 1)));
+        closed.forEach(x => doneBody.append(makeRow(x, null)));
         bodies.push(doneBody);
       }
     }
 
     const table = el("table", {}, colgroup, el("thead", {}, headRow), bodies);
     const scroller = el("div", { class: "scroller" }, table);
-    const foot = el("div", { class: "foot" },
-      el("span", { class: "hint", text: "Enter で下の行へ ・ 列名を押すと種類や並べ替え" }));
-    sheetEl.append(scroller, foot);
+    sheetEl.append(scroller);
     scroller.scrollTop = scrollTop; scroller.scrollLeft = scrollLeft;
 
     if (focus) {
