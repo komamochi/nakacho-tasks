@@ -174,12 +174,17 @@ thead th.group-th { height: 38px; border-bottom: 1px solid var(--line); }
 th { position: relative; }
 .resize { position: absolute; right: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 3; }
 .resize:hover, .resize.on { background: linear-gradient(var(--wood), var(--wood)) center / 2px 100% no-repeat; }
-.gutter { width: 46px; text-align: center; color: var(--ink-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
+.gutter { width: 60px; text-align: center; color: var(--ink-soft); font-size: 12px; font-variant-numeric: tabular-nums; }
 td.gutter { position: relative; }
-.row-del {
-  position: absolute; inset: 0; margin: auto; width: 24px; height: 24px; border-radius: 50%;
-  border: 0; background: var(--surface-2); color: var(--ink-soft); display: none; place-items: center; font-size: 13px;
+.row-del, .row-add {
+  position: absolute; top: 0; bottom: 0; margin: auto 0; width: 22px; height: 22px; border-radius: 50%;
+  border: 0; background: var(--surface-2); color: var(--ink-soft); display: none; place-items: center; font-size: 13px; padding: 0;
 }
+.row-add { left: 7px; font-size: 15px; }
+.row-del { right: 7px; }
+tr:hover .row-add, .row-add.asking { display: grid; }
+.row-add:hover, .row-add.asking { background: var(--wood-soft); color: var(--wood-deep); }
+tr:has(.row-add.asking) .row-num { visibility: hidden; }
 tr:hover .row-del { display: grid; }
 tr:hover .row-num { visibility: hidden; }
 tr .row-del.asking { display: grid; background: var(--c-rose-bg); color: var(--c-rose-fg); }
@@ -668,7 +673,7 @@ import { createClient } from "@supabase/supabase-js";
     sheetEl.replaceChildren();
 
     const colgroup = el("colgroup", {},
-      el("col", { style: "width:46px" }),
+      el("col", { style: "width:60px" }),
       t.cols.map(c => el("col", { style: `width:${c.width || 160}px` })),
       el("col", { style: "width:52px" }),
     );
@@ -714,6 +719,8 @@ import { createClient } from "@supabase/supabase-js";
       const tr = el("tr", { class: isDone(r) ? "done" : "", "data-row": ri });
       tr.append(el("td", { class: "gutter" },
         el("span", { class: "row-num", text: n ?? "" }),
+        n ? el("button", { class: "row-add", type: "button", "aria-label": "上か下に行を追加", text: "+",
+          onclick: e => rowAddMenu(t, ri, e.currentTarget) }) : null,
         el("button", { class: "row-del", type: "button", "aria-label": n ? `${n}行目を削除` : "この完了した行を削除", text: "×",
           onclick: e => confirmRowDelete(e.currentTarget, () => { t.rows.splice(ri, 1); save(); renderSheet(); renderTabs(); }) })));
       t.cols.forEach((c, ci) => tr.append(el("td", {}, cellEl(t, r, c, ri, ci))));
@@ -750,6 +757,20 @@ import { createClient } from "@supabase/supabase-js";
       const target = sheetEl.querySelector(`[data-r="${focus.r}"][data-c="${focus.c}"]`);
       target?.focus();
     }
+  }
+
+  // 行の「＋」：上か下に行を足す
+  function rowAddMenu(t, ri, anchor) {
+    anchor.classList.add("asking");
+    openMenu(anchor, m => {
+      m.classList.add("compact");
+      m.append(
+        mi("↑", "上に行を追加", () => { closeMenu(); addRow(t, true, ri); }),
+        mi("↓", "下に行を追加", () => { closeMenu(); addRow(t, true, ri + 1); }),
+      );
+    });
+    const prev = menuCleanup;
+    menuCleanup = () => { prev?.(); anchor.classList.remove("asking"); };
   }
 
   // 1回目は「もう一度押すと削除します」と出し、2回目で削除する
