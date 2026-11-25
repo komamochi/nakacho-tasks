@@ -723,7 +723,9 @@ import { createClient } from "@supabase/supabase-js";
           onclick: e => rowAddMenu(t, ri, e.currentTarget) }) : null,
         el("button", { class: "row-del", type: "button", "aria-label": n ? `${n}行目を削除` : "この完了した行を削除", text: "×",
           onclick: e => confirmRowDelete(e.currentTarget, () => { t.rows.splice(ri, 1); save(); renderSheet(); renderTabs(); }) })));
-      t.cols.forEach((c, ci) => tr.append(el("td", {}, cellEl(t, r, c, ri, ci))));
+      t.cols.forEach((c, ci) => tr.append(el("td", {
+        oncontextmenu: e => { if (c.type === "check") return; e.preventDefault(); cellMenu(t, c, ri, e.currentTarget, e); },
+      }, cellEl(t, r, c, ri, ci))));
       tr.append(el("td"));
       return tr;
     };
@@ -732,7 +734,7 @@ import { createClient } from "@supabase/supabase-js";
     const bodies = [body, el("tbody", { class: "add-group" }, el("tr", {}, el("td", { colspan: t.cols.length + 2 },
       el("div", { class: "add-line" },
         el("button", { class: "btn-soft", type: "button", onclick: () => addRow(t, true) }, el("span", { text: "+" }), "行を追加"),
-        el("span", { class: "hint", text: "Enter で下の行へ ・ 列名を押すと種類や並べ替え" })))))];
+        el("span", { class: "hint", text: "Enter で下の行へ ・ 列名を押すと種類や並べ替え ・ 右クリックでセルの追加と削除" })))))];
     if (closed.length) {
       const shown = !!t.showDone;
       bodies.push(el("tbody", { class: "done-group" }, el("tr", {}, el("td", { colspan: t.cols.length + 2 },
@@ -756,6 +758,75 @@ import { createClient } from "@supabase/supabase-js";
     if (focus) {
       const target = sheetEl.querySelector(`[data-r="${focus.r}"][data-c="${focus.c}"]`);
       target?.focus();
+    }
+  }
+
+  // ---------- セルだけを足す・消す（右クリック） ----------
+  // 上の見出しでまとめた列は、まとめてずらす（施策とリリース日がずれないように）
+  function shiftCols(t, c) {
+    let cols = [c];
+    if (c.group) {
+      const i = t.cols.indexOf(c);
+      let a = i, b = i;
+      while (a > 0 && t.cols[a - 1].group === c.group) a--;
+      while (b < t.cols.length - 1 && t.cols[b + 1].group === c.group) b++;
+      cols = t.cols.slice(a, b + 1);
+    }
+    return cols.filter(x => x.type !== "check");
+  }
+  const emptyOf = c => c.type === "check" ? false : "";
+  const isEmpty = v => v === "" || v === false || v == null;
+  // 同じまとまり（まだ・完了）の行を、上から順に
+  function sectionRows(t, ri) {
+    const checkCol = t.cols.find(c => c.type === "check");
+    const done = r => !!(checkCol && r.cells[checkCol.id]);
+    const d = done(t.rows[ri]);
+    return { list: t.rows.filter(r => done(r) === d), done: d, checkCol };
+  }
+  function insertCell(t, c, ri, below) {
+    const cols = shiftCols(t, c);
+    const { list, done, checkCol } = sectionRows(t, ri);
+    let p = list.indexOf(t.rows[ri]) + (below ? 1 : 0);
+    const last = list[list.length - 1];
+    if (cols.some(x => !isEmpty(last.cells[x.id])) || p >= list.length) {
+      const nr = { id: uid(), cells: {} };
+      if (done && checkCol) nr.cells[checkCol.id] = true;
+      t.rows.splice(t.rows.indexOf(last) + 1, 0, nr);
+      list.push(nr);
+    }
+    for (const x of cols) {
+      for (let k = list.length - 1; k > p; k--) list[k].cells[x.id] = list[k - 1].cells[x.id] ?? emptyOf(x);
+      list[p].cells[x.id] = emptyOf(x);
+    }
+    save(); renderSheet({ r: t.rows.indexOf(list[p]), c: t.cols.indexOf(c) }); renderTabs();
+  }
+  function deleteCell(t, c, ri) {
+    const cols = shiftCols(t, c);
+    const { list } = sectionRows(t, ri);
+    const p = list.indexOf(t.rows[ri]);
+    for (const x of cols) {
+      for (let k = p; k < list.length - 1; k++) list[k].cells[x.id] = list[k + 1].cells[x.id] ?? emptyOf(x);
+      list[list.length - 1].cells[x.id] = emptyOf(x);
+    }
+    save(); renderSheet(); renderTabs();
+  }
+  function cellMenu(t, c, ri, anchor, ev) {
+    const cols = shiftCols(t, c);
+    if (!cols.length) return;
+    openMenu(anchor, m => {
+      m.classList.add("compact");
+      if (c.group) m.append(el("div", { class: "sec", text: `「${c.group}」の列をまとめて動かします` }));
+      m.append(
+        mi("↑", "上にセルを追加", () => { closeMenu(); insertCell(t, c, ri, false); }),
+        mi("↓", "下にセルを追加", () => { closeMenu(); insertCell(t, c, ri, true); }),
+        el("hr"),
+        dangerItem("このセルを削除（下を詰める）", "もう一度押すと削除します", () => deleteCell(t, c, ri)),
+      );
+    });
+    if (ev && menuEl) {   // 右クリックした場所に出す
+      const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
+      menuEl.style.left = Math.max(12, Math.min(ev.clientX, innerWidth - w - 12)) + "px";
+      menuEl.style.top = Math.max(12, Math.min(ev.clientY, innerHeight - h - 12)) + "px";
     }
   }
 
