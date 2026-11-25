@@ -343,16 +343,17 @@ import { createClient } from "@supabase/supabase-js";
   const uid = () => Math.random().toString(36).slice(2, 9);
 
   // ---------- 初期データ ----------
+  const statusOptions = () => [
+    { id: uid(), label: "未着手", color: "gray" },
+    { id: uid(), label: "進行中", color: "wood" },
+    { id: uid(), label: "確認待ち", color: "sky" },
+    { id: uid(), label: "完了", color: "sage" },
+  ];
   function defaultCols() {
     return [
       { id: uid(), name: "完了", type: "check", width: 64 },
       { id: uid(), name: "タスク", type: "text", width: 300 },
-      { id: uid(), name: "ステータス", type: "select", width: 140, options: [
-        { id: uid(), label: "未着手", color: "gray" },
-        { id: uid(), label: "進行中", color: "wood" },
-        { id: uid(), label: "確認待ち", color: "sky" },
-        { id: uid(), label: "完了", color: "sage" },
-      ] },
+      { id: uid(), name: "ステータス", type: "select", width: 140, options: statusOptions() },
       { id: uid(), name: "期限", type: "date", width: 150 },
       { id: uid(), name: "メモ", type: "text", width: 260 },
     ];
@@ -904,6 +905,15 @@ import { createClient } from "@supabase/supabase-js";
       for (const ty of TYPES) {
         types.append(mi(ty.ico, ty.label, () => { changeType(t, c, ty.id); closeMenu(); renderSheet(); renderTabs(); }, c.type === ty.id ? "sel" : ""));
       }
+      // ステータス：選択肢の列に、未着手・進行中・確認待ち・完了を入れる
+      types.append(mi("◐", "ステータス", () => {
+        if (c.type !== "select") changeType(t, c, "select");
+        const have = new Set((c.options || []).map(o => o.label));
+        c.options = [...(c.options || []), ...statusOptions().filter(o => !have.has(o.label))];
+        if (!c.name || c.name === "新しい列") c.name = "ステータス";
+        c.width = Math.max(c.width || 0, 140);
+        save(); closeMenu(); renderSheet(); renderTabs();
+      }));
       m.append(types);
 
       m.append(el("div", { class: "sec", text: "上の見出し（となりの列と同じ名前にすると、まとまります）" }));
