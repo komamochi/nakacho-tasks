@@ -219,6 +219,17 @@ td:focus-within { box-shadow: inset 0 0 0 2px var(--wood); border-radius: 4px; }
 .btn-soft:hover { background: var(--surface-2); color: var(--ink); }
 .foot .hint { margin-left: auto; color: var(--ink-soft); font-size: 12px; padding-right: 8px; }
 
+.done-group td { border-right: 0; background: var(--surface); }
+tbody.done-group tr:hover td { background: var(--surface); }
+.done-toggle {
+  position: sticky; left: 0; border: 0; background: transparent; border-radius: 999px;
+  margin: 6px 8px; padding: 6px 12px; display: inline-flex; align-items: center; gap: 8px;
+  color: var(--ink-soft); font-weight: 500;
+}
+.done-toggle:hover { background: var(--surface-2); color: var(--ink); }
+.done-toggle .chev { display: inline-block; font-size: 11px; transition: transform .15s; }
+.done-toggle .chev.on { transform: rotate(90deg); }
+.done-count { font-size: 11px; font-variant-numeric: tabular-nums; background: var(--surface-2); border-radius: 999px; padding: 0 8px; }
 .empty-state { padding: 48px 16px; text-align: center; color: var(--ink-soft); }
 
 /* ---- メニュー ---- */
@@ -606,7 +617,7 @@ import { createClient } from "@supabase/supabase-js";
         mi("✎", "名前を変更", () => { closeMenu(); startRename(t, tabsEl.querySelector(".tab.active") || btn); }),
         mi("⧉", "タブを複製", () => {
           const copy = JSON.parse(JSON.stringify(t));
-          copy.id = userId(); copy.name = t.name + " のコピー";
+          copy.id = uid(); copy.name = t.name + " のコピー";
           state.tabs.splice(state.tabs.indexOf(t) + 1, 0, copy);
           state.active = copy.id; save(); closeMenu(); render();
         }),
@@ -657,26 +668,46 @@ import { createClient } from "@supabase/supabase-js";
     headRow.append(el("th", { class: "add-col-th" },
       el("button", { class: "add-col", type: "button",  "aria-label": "列を追加", text: "+",
         onclick: () => {
-          const c = { id: userId(), name: "新しい列", type: "text", width: 160 };
+          const c = { id: uid(), name: "新しい列", type: "text", width: 160 };
           t.cols.push(c); save(); renderSheet();
           const heads = sheetEl.querySelectorAll(".col-head");
           colMenu(t, c, heads[heads.length - 1], true);
         } })));
 
-    const body = el("tbody");
+    // 「完了」の列があるときは、チェックした行を下の「完了」にまとめる
     const checkCol = t.cols.find(c => c.type === "check");
-    t.rows.forEach((r, ri) => {
-      const tr = el("tr", { class: checkCol && r.cells[checkCol.id] ? "done" : "" });
+    const isDone = r => !!(checkCol && r.cells[checkCol.id]);
+    const order = t.rows.map((r, ri) => ({ r, ri }));
+    const open = order.filter(x => !isDone(x.r)), closed = order.filter(x => isDone(x.r));
+    const makeRow = ({ r, ri }, n) => {
+      const tr = el("tr", { class: isDone(r) ? "done" : "", "data-row": ri });
       tr.append(el("td", { class: "gutter" },
-        el("span", { class: "row-num", text: ri + 1 }),
-        el("button", { class: "row-del", type: "button",  "aria-label": `${ri + 1}行目を削除`, text: "×",
+        el("span", { class: "row-num", text: n }),
+        el("button", { class: "row-del", type: "button", "aria-label": `${n}行目を削除`, text: "×",
           onclick: () => { t.rows.splice(ri, 1); save(); renderSheet(); renderTabs(); } })));
       t.cols.forEach((c, ci) => tr.append(el("td", {}, cellEl(t, r, c, ri, ci))));
       tr.append(el("td"));
-      body.append(tr);
-    });
+      return tr;
+    };
+    const body = el("tbody");
+    open.forEach((x, i) => body.append(makeRow(x, i + 1)));
+    const bodies = [body];
+    if (closed.length) {
+      const shown = !!t.showDone;
+      bodies.push(el("tbody", { class: "done-group" }, el("tr", {}, el("td", { colspan: t.cols.length + 2 },
+        el("button", { class: "done-toggle", type: "button", "aria-expanded": shown ? "true" : "false",
+          onclick: () => { t.showDone = !shown; save(); renderSheet(); } },
+          el("span", { class: "chev" + (shown ? " on" : ""), "aria-hidden": "true", text: "▸" }),
+          el("span", { text: "完了" }),
+          el("span", { class: "done-count", text: closed.length }))))));
+      if (shown) {
+        const doneBody = el("tbody", { class: "done-rows" });
+        closed.forEach((x, i) => doneBody.append(makeRow(x, open.length + i + 1)));
+        bodies.push(doneBody);
+      }
+    }
 
-    const table = el("table", {}, colgroup, el("thead", {}, headRow), body);
+    const table = el("table", {}, colgroup, el("thead", {}, headRow), bodies);
     const scroller = el("div", { class: "scroller" }, table);
     const foot = el("div", { class: "foot" },
       el("button", { class: "btn-soft", type: "button", onclick: () => addRow(t, true) }, el("span", { text: "+" }), "行を追加"),
@@ -691,7 +722,7 @@ import { createClient } from "@supabase/supabase-js";
   }
 
   function addRow(t, focusIt, at) {
-    const r = { id: userId(), cells: {} };
+    const r = { id: uid(), cells: {} };
     const idx = at == null ? t.rows.length : at;
     t.rows.splice(idx, 0, r);
     save();
@@ -700,21 +731,26 @@ import { createClient } from "@supabase/supabase-js";
     if (focusIt) sheetEl.querySelector(".scroller").scrollTop = 1e6;
   }
 
-  function moveFocus(ri, ci) {
-    const t = tab();
-    if (ri < 0) return;
-    if (ri >= t.rows.length) { addRow(t, false); }
-    const target = sheetEl.querySelector(`[data-r="${ri}"][data-c="${ci}"]`);
+  function focusCell(tr, ci) {
+    const target = tr?.querySelector(`[data-c="${ci}"]`);
     target?.focus();
     if (target?.select && target.type === "text") target.select();
+  }
+  function moveFocus(ri, ci) { focusCell(sheetEl.querySelector(`tr[data-row="${ri}"]`), ci); }
+  // 画面に見えている順で上下に動く（完了にまとめた行もふくめて）
+  function moveRow(ri, ci, delta, addAtEnd) {
+    const rows = [...sheetEl.querySelectorAll("tr[data-row]")];
+    const next = rows[rows.findIndex(tr => tr.dataset.row == ri) + delta];
+    if (next) return focusCell(next, ci);
+    if (delta > 0 && addAtEnd) { const t = tab(); addRow(t, false); moveFocus(t.rows.length - 1, ci); }
   }
 
   function navKeys(e, ri, ci, isText) {
     if (e.isComposing) return;
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); moveFocus(ri + 1, ci); }
-    else if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); moveFocus(ri - 1, ci); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); moveFocus(ri + 1 >= tab().rows.length ? ri : ri + 1, ci); }
-    else if (e.key === "ArrowUp") { e.preventDefault(); moveFocus(ri - 1, ci); }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); moveRow(ri, ci, 1, true); }
+    else if (e.key === "Enter" && e.shiftKey) { e.preventDefault(); moveRow(ri, ci, -1); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); moveRow(ri, ci, 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); moveRow(ri, ci, -1); }
     else if (!isText && e.key === "ArrowRight") { e.preventDefault(); moveFocus(ri, Math.min(ci + 1, tab().cols.length - 1)); }
     else if (!isText && e.key === "ArrowLeft") { e.preventDefault(); moveFocus(ri, Math.max(ci - 1, 0)); }
     else if (isText && e.key === "ArrowRight" && e.target.selectionStart === e.target.value.length && e.target.selectionEnd === e.target.value.length) {
@@ -793,7 +829,7 @@ import { createClient } from "@supabase/supabase-js";
         if (!shown.length && !q) list.append(el("div", { class: "sec", text: "上の欄に入力して Enter で追加できます" }));
       };
       const addOpt = label => {
-        const o = { id: userId(), label, color: COLORS[c.options.length % COLORS.length] };
+        const o = { id: uid(), label, color: COLORS[c.options.length % COLORS.length] };
         c.options.push(o); pick(o.id);
       };
       input.addEventListener("input", draw);
@@ -849,7 +885,7 @@ import { createClient } from "@supabase/supabase-js";
   }
 
   function insertCol(t, at) {
-    const c = { id: userId(), name: "新しい列", type: "text", width: 160 };
+    const c = { id: uid(), name: "新しい列", type: "text", width: 160 };
     t.cols.splice(at, 0, c); save(); closeMenu(); renderSheet();
     colMenu(t, c, sheetEl.querySelectorAll(".col-head")[at], true);
   }
@@ -866,7 +902,7 @@ import { createClient } from "@supabase/supabase-js";
     const vals = t.rows.map(display);
     if (to === "select") {
       const opts = [];
-      vals.forEach(s => { if (s && !opts.some(o => o.label === s)) opts.push({ id: userId(), label: s, color: COLORS[opts.length % COLORS.length] }); });
+      vals.forEach(s => { if (s && !opts.some(o => o.label === s)) opts.push({ id: uid(), label: s, color: COLORS[opts.length % COLORS.length] }); });
       if (from !== "select") c.options = opts.length ? opts : (c.options || []);
       t.rows.forEach((r, i) => { r.cells[c.id] = c.options.find(o => o.label === vals[i])?.id || ""; });
     } else if (to === "check") {
