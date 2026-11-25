@@ -156,6 +156,14 @@ thead th {
   text-align: left; font-weight: 500; color: var(--ink-soft); font-size: 12.5px;
   height: 44px; border-bottom: 1.5px solid var(--line);
 }
+thead tr.sub th { top: 38px; }
+thead th.group-th { height: 38px; border-bottom: 1px solid var(--line); }
+.group-head {
+  width: 100%; height: 38px; border: 0; background: transparent; padding: 0 12px;
+  text-align: center; color: var(--ink); font-weight: 700; font-size: 13px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.group-head:hover { background: var(--surface-2); }
 .col-head {
   width: 100%; height: 44px; border: 0; background: transparent; text-align: left;
   display: flex; align-items: center; gap: 7px; padding: 0 12px; color: inherit;
@@ -660,22 +668,36 @@ import { createClient } from "@supabase/supabase-js";
       el("col", { style: "width:52px" }),
     );
 
-    const headRow = el("tr", {}, el("th", { class: "gutter" }));
-    t.cols.forEach((c, ci) => {
-      const head = el("button", { class: "col-head", type: "button", onclick: () => colMenu(t, c, head) },
+    const colHead = (c, ci, attrs = {}) => {
+      const head = el("button", { class: "col-head", type: "button", "data-ci": ci, onclick: () => colMenu(t, c, head) },
         el("span", { class: "ico", text: typeOf(c.type).ico }),
         el("span", { class: "nm", text: c.name || "無題" }));
       const handle = el("span", { class: "resize", "aria-hidden": "true" });
       handle.addEventListener("pointerdown", e => startResize(e, t, c, handle, ci));
-      headRow.append(el("th", {}, head, handle));
-    });
-    headRow.append(el("th", { class: "add-col-th" },
+      return el("th", attrs, head, handle);
+    };
+    const hasGroups = t.cols.some(c => c.group);
+    const span = hasGroups ? { rowspan: 2 } : {};
+    const headRow = el("tr", {}, el("th", { class: "gutter", ...span }));
+    const subRow = el("tr", { class: "sub" });
+    // 「上の見出し」が同じ列がとなり合っていたら、上の段をひとつにまとめる
+    for (let i = 0; i < t.cols.length;) {
+      const g = t.cols[i].group;
+      let j = i;
+      while (g && j + 1 < t.cols.length && t.cols[j + 1].group === g) j++;
+      if (!g) { headRow.append(colHead(t.cols[i], i, span)); i++; continue; }
+      const run = t.cols.slice(i, j + 1);
+      const gb = el("button", { class: "group-head", type: "button", onclick: () => groupMenu(t, run, gb) }, el("span", { class: "nm", text: g }));
+      headRow.append(el("th", { class: "group-th", colspan: run.length }, gb));
+      run.forEach((c, k) => subRow.append(colHead(c, i + k)));
+      i = j + 1;
+    }
+    headRow.append(el("th", { class: "add-col-th", ...span },
       el("button", { class: "add-col", type: "button",  "aria-label": "列を追加", text: "+",
         onclick: () => {
           const c = { id: uid(), name: "新しい列", type: "text", width: 160 };
           t.cols.push(c); save(); renderSheet();
-          const heads = sheetEl.querySelectorAll(".col-head");
-          colMenu(t, c, heads[heads.length - 1], true);
+          colMenu(t, c, sheetEl.querySelector(`.col-head[data-ci="${t.cols.length - 1}"]`), true);
         } })));
 
     // 「完了」の列があるときは、チェックした行を下の「完了」にまとめる
@@ -714,7 +736,7 @@ import { createClient } from "@supabase/supabase-js";
       }
     }
 
-    const table = el("table", {}, colgroup, el("thead", {}, headRow), bodies);
+    const table = el("table", {}, colgroup, el("thead", {}, headRow, hasGroups ? subRow : null), bodies);
     const scroller = el("div", { class: "scroller" }, table);
     sheetEl.append(scroller);
     scroller.scrollTop = scrollTop; scroller.scrollLeft = scrollLeft;
@@ -866,15 +888,26 @@ import { createClient } from "@supabase/supabase-js";
       for (const ty of TYPES) {
         types.append(mi(ty.ico, ty.label, () => { changeType(t, c, ty.id); closeMenu(); renderSheet(); renderTabs(); }, c.type === ty.id ? "sel" : ""));
       }
-      m.append(types, el("hr"));
+      m.append(types);
+
+      m.append(el("div", { class: "sec", text: "上の見出し（となりの列と同じ名前にすると、まとまります）" }));
+      const grp = el("input", { type: "text", placeholder: "例：dawn", "aria-label": "上の見出し" });
+      grp.value = c.group || "";
+      grp.addEventListener("change", () => { c.group = grp.value.trim(); save(); closeMenu(); renderSheet(); });
+      grp.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) grp.dispatchEvent(new Event("change")); });
+      m.append(grp, el("hr"));
 
       const idx = t.cols.indexOf(c);
       m.append(...[
         mi("↑", "昇順で並べ替え", () => { sortBy(t, c, 1); closeMenu(); }),
         mi("↓", "降順で並べ替え", () => { sortBy(t, c, -1); closeMenu(); }),
         el("hr"),
-        mi("←", "左に列を追加", () => { insertCol(t, idx); }),
-        mi("→", "右に列を追加", () => { insertCol(t, idx + 1); }),
+        mi("←", "左に列を追加", () => { insertCol(t, idx, c.group); }),
+        mi("→", "右に列を追加", () => { insertCol(t, idx + 1, c.group); }),
+        mi("⧉", "この列を複製", () => {
+          const copy = { ...JSON.parse(JSON.stringify(c)), id: uid(), name: c.name + " のコピー" };
+          t.cols.splice(idx + 1, 0, copy); save(); closeMenu(); renderSheet();
+        }),
         idx > 0 ? mi("‹", "左へ移動", () => { t.cols.splice(idx, 1); t.cols.splice(idx - 1, 0, c); save(); closeMenu(); renderSheet(); }) : null,
         idx < t.cols.length - 1 ? mi("›", "右へ移動", () => { t.cols.splice(idx, 1); t.cols.splice(idx + 1, 0, c); save(); closeMenu(); renderSheet(); }) : null,
       ].filter(Boolean));
@@ -888,10 +921,36 @@ import { createClient } from "@supabase/supabase-js";
     });
   }
 
-  function insertCol(t, at) {
-    const c = { id: uid(), name: "新しい列", type: "text", width: 160 };
+  function insertCol(t, at, group) {
+    const c = { id: uid(), name: "新しい列", type: "text", width: 160, group: group || "" };
     t.cols.splice(at, 0, c); save(); closeMenu(); renderSheet();
-    colMenu(t, c, sheetEl.querySelectorAll(".col-head")[at], true);
+    colMenu(t, c, sheetEl.querySelector(`.col-head[data-ci="${at}"]`), true);
+  }
+
+  // 上の見出し（まとめた列）のメニュー
+  function groupMenu(t, run, anchor) {
+    openMenu(anchor, m => {
+      m.classList.add("compact");
+      const name = el("input", { type: "text", "aria-label": "上の見出しの名前" });
+      name.value = run[0].group;
+      name.addEventListener("input", () => {
+        run.forEach(c => { c.group = name.value; }); save();
+        const nm = anchor.querySelector(".nm"); if (nm) nm.textContent = name.value;
+      });
+      name.addEventListener("keydown", e => { if (e.key === "Enter" && !e.isComposing) { closeMenu(); renderSheet(); } });
+      const end = t.cols.indexOf(run[run.length - 1]);
+      m.append(name,
+        mi("⧉", "まとめて複製（右に追加）", () => {
+          const copies = run.map(c => ({ ...JSON.parse(JSON.stringify(c)), id: uid(), group: run[0].group + " のコピー" }));
+          t.cols.splice(end + 1, 0, ...copies); save(); closeMenu(); renderSheet();
+          const gh = [...sheetEl.querySelectorAll(".group-head")].find(b => b.textContent === copies[0].group);
+          if (gh) groupMenu(t, copies, gh);
+        }),
+        mi("→", "この中に列を追加", () => { insertCol(t, end + 1, run[0].group); }),
+        mi("○", "まとめをはずす", () => { run.forEach(c => { c.group = ""; }); save(); closeMenu(); renderSheet(); }),
+      );
+    });
+    setTimeout(() => menuEl?.querySelector("input")?.select());
   }
 
   function changeType(t, c, to) {
